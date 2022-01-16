@@ -2,6 +2,8 @@
 name = "hyperloglogplusplus"
 version = "0.1.0"
 edition = "2018"
+license = "Unlicense"
+description = "Faithful implementation of hyperloglogplusplus, conforms to google's whitepaper and is compatible with bigquery"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

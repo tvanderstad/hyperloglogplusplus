@@ -1215,4 +1215,135 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn get_estimate_empty_sketch() {
+        let sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn get_estimate_linear_count_a() {
+        // linear counting threshold for precision 10 is 900 (see linearCountingThresholds in getestimate.go)
+        // linear count is 1024*ln(1024/1023) = 1.0004 which is less than 900, so we use it as the estimate (rounded)
+        let mut sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match sketch.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0] = 55; // this value doesn't matter if we're using linear counting
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn get_estimate_linear_count_b() {
+        // linear counting threshold for precision 10 is 900 (see linearCountingThresholds in getestimate.go)
+        // linear count is 1024*ln(1024/(1024-598)) = 898.08 which is less than 900, so we use it as the estimate (rounded)
+        let mut sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match sketch.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 0..598 {
+                    dense_data[i] = 55; // this value doesn't matter if we're using linear counting
+                }
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 898);
+    }
+
+    #[test]
+    fn get_estimate_linear_count_sparse() {
+        // linear counting threshold for precision 10 is 900 (see linearCountingThresholds in getestimate.go)
+        // linear count is 1024*ln(1024/(1024-599)) = 900.49 which is greater than 900, but representation is sparse, so we use linear count as the estimate
+        let mut sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        match sketch.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                for i in 0..599 {
+                    sparse_data.push(encode_sparse(&sketch.precisions, i, 55)); // this value doesn't matter if we're using linear counting
+                }
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 900);
+    }
+
+    #[test]
+    fn get_estimate_hll_no_bias() {
+        // zero count is 0 so we use HLL
+        // raw estimate is 0.7213 / (1 + 1.079 * 2^-10) * 1024 * (1024 / (1024 * 2^-3)) = 5902.6699
+        // highest bias estimate in meanData is 5084.1828, so because our estimate is bigger, bias is estimated to be 0
+        // unbiasedEstimate is 5902.6699 - 0 = 5902.6699 = 5903
+        let mut sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match sketch.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 0..1024 {
+                    dense_data[i] = 3;
+                }
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 5903);
+    }
+
+    #[test]
+    fn get_estimate_hll() {
+        // linear counting threshold for precision 10 is 900 (see linearCountingThresholds in getestimate.go)
+        // linear count is 1024*ln(1024/(1024-599)) = 900.49 which is greater than 900, so we use HLL
+        // raw estimate is 0.7213 / (1 + 1.079 * 2^-10) * 1024 * (1024 / ((599 * 2^-55) + (1024-599) * 2^0)) = 1777.7453
+        // closestBiases are indexes [61, 67): {194.9012, 188.4486, 183.1556, 178.6338, 173.7312, 169.6264}
+        // biasEstimate is:
+        // (194.9012 / (1777.7453 - 1730.9012)^2 + 188.4486 / (1777.7453 - 1750.4486)^2 + 183.1556 / (1777.7453 - 1770.1556)^2 + 178.6338 / (1777.7453 - 1791.6338)^2 + 173.7312 / (1777.7453 - 1812.7312)^2 + 169.6264 / (1777.7453 - 1833.6264)^2) /
+        // ((1777.7453 - 1730.9012)^-2 + (1777.7453 - 1750.4486)^-2 + (1777.7453 - 1770.1556)^-2 + (1777.7453 - 1791.6338)^-2 + (1777.7453 - 1812.7312)^-2 + (1777.7453 - 1833.6264)^-2)
+        // = 182.2522
+        // unbiasedEstimate is 1777.7453 - 182.2522 = 1595.4931 = 1595
+        let mut sketch = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match sketch.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 0..599 {
+                    dense_data[i] = 55;
+                }
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        let result = sketch.get_estimate();
+
+        assert_eq!(result, 1595);
+    }
 }

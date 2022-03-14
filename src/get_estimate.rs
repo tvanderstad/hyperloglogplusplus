@@ -17,7 +17,7 @@ pub(crate) fn linear_counting_threshold(precision: u8) -> Option<f64> {
 }
 
 // empirically derived values for determining biases
-// if meanData[precision][i] == rawEstimate, then biasData[precision][i] = bias
+// if mean_data[precision][i] == raw_estimate, then bias_data[precision][i] = bias
 fn mean_data(precision: u8) -> Option<&'static [f64]> {
     match precision {
         10 => Some(&[
@@ -2812,14 +2812,48 @@ pub(crate) fn alpha(x: u8) -> f64 {
     return 0.7213 / (1.0 + 1.079 / ((1u64 << x) as f64));
 }
 
+fn float_cmp(a: f64, b: f64) -> bool {
+    (a - b).abs() <= ((a.abs() + b.abs()) / 2.0) * 0.0001
+}
+
+#[derive(Debug)]
 pub(crate) struct BiasWithDistance {
     bias: f64,
     distance: f64,
 }
 
-// closestBiases returns the knnNeighbors nearest bias datapoints, sorted by distance ascending.
+impl PartialEq for BiasWithDistance {
+    fn eq(&self, other: &Self) -> bool {
+        float_cmp(self.bias, other.bias) && float_cmp(self.distance, other.distance)
+    }
+}
+
+// closest_biases returns the KNN_NEIGHBORS nearest bias datapoints, sorted by distance ascending.
 pub(crate) fn closest_biases(raw_estimate: &f64, precision: u8) -> Vec<BiasWithDistance> {
-    let (biases, means) = (bias_data(precision).unwrap(), mean_data(precision).unwrap()); // unwrap is safe because dense precisions are checked to be 10 <= precision <= 18
+    closest_biases_internal(
+        raw_estimate,
+        precision,
+        KNN_NEIGHBORS,
+        &bias_data,
+        &mean_data,
+    )
+}
+
+// closest_biases_internal returns the knn_neighbors nearest bias datapoints, sorted by distance ascending.
+fn closest_biases_internal<
+    BF: Fn(u8) -> Option<&'static [f64]>,
+    MF: Fn(u8) -> Option<&'static [f64]>,
+>(
+    raw_estimate: &f64,
+    precision: u8,
+    knn_neighbors: usize,
+    bias_data_fn: &BF,
+    mean_data_fn: &MF,
+) -> Vec<BiasWithDistance> {
+    let (biases, means) = (
+        bias_data_fn(precision).unwrap(),
+        mean_data_fn(precision).unwrap(),
+    ); // unwrap is safe because dense precisions are checked to be 10 <= precision <= 18
 
     // return no bias correction when estimate is out of bounds
     if raw_estimate < &means[0] || raw_estimate > &means[means.len() - 1] {
@@ -2834,12 +2868,8 @@ pub(crate) fn closest_biases(raw_estimate: &f64, precision: u8) -> Vec<BiasWithD
         Err(index) => index,
     };
 
-    let bottom = if index < KNN_NEIGHBORS {
-        0
-    } else {
-        index - KNN_NEIGHBORS
-    };
-    let top = (index + KNN_NEIGHBORS).max(means.len());
+    let bottom = 0.max(index as i64 - knn_neighbors as i64) as usize;
+    let top = (index + knn_neighbors).min(means.len());
 
     let mut candidate_closest_biases = (bottom..top)
         .map(|i| BiasWithDistance {
@@ -2852,13 +2882,13 @@ pub(crate) fn closest_biases(raw_estimate: &f64, precision: u8) -> Vec<BiasWithD
 
     candidate_closest_biases
         .into_iter()
-        .take(KNN_NEIGHBORS)
+        .take(knn_neighbors)
         .collect()
 }
 
-// estimateBias estimates the bias of a (rawEstimate, precision) pair.
+// estimate_bias estimates the bias of a (raw_estimate, precision) pair.
 pub(crate) fn estimate_bias(closest_biases: &[BiasWithDistance]) -> f64 {
-    // closestBiases() returns an empty slice when we should offer no bias correction
+    // closest_biases() returns an empty slice when we should offer no bias correction
     if closest_biases.len() == 0 {
         return 0.0;
     }
@@ -2868,9 +2898,9 @@ pub(crate) fn estimate_bias(closest_biases: &[BiasWithDistance]) -> f64 {
         return closest_biases[0].bias;
     }
 
-    // ...otherwise use weighted mean of closest knnNeighbors biases, weighted by 1/distance
+    // ...otherwise use weighted mean of closest knn_neighbors biases, weighted by 1/distance
     // no bias.distance is 0 because we would have just returned it
-    // weight sum is never 0 because if closestBiases() were empty we would have returned 0
+    // weight sum is never 0 because if closest_biases() were empty we would have returned 0
     closest_biases
         .iter()
         .map(|bwd| bwd.bias / bwd.distance)
@@ -2886,6 +2916,359 @@ pub(crate) fn exp_harmonic_mean(dense_sketch: &[u8]) -> f64 {
     (dense_sketch.len() as f64)
         / dense_sketch
             .iter()
-            .map(|&v| 1.0 / ((1 << v) as f64))
+            .map(|&v| 1.0 / ((1u64 << v) as f64))
             .sum::<f64>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BiasWithDistance;
+
+    #[test]
+    fn closest_biases_raw_estimate_too_small() {
+        let raw_estimate = 99.0;
+        let precision = 10;
+        let knn_neighbors = 3;
+        let bias_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[1.2, 3.4, 5.6, 7.8, 9.0]) };
+        let mean_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[100.0, 101.0, 102.0, 103.0, 104.0]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn closest_biases_raw_estimate_too_large() {
+        let raw_estimate = 105.0;
+        let precision = 10;
+        let knn_neighbors = 3;
+        let bias_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[1.2, 3.4, 5.6, 7.8, 9.0]) };
+        let mean_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[100.0, 101.0, 102.0, 103.0, 104.0]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn closest_biases_one_exact_match() {
+        let raw_estimate = 420.69;
+        let precision = 10;
+        let knn_neighbors = 1;
+        let bias_data = |_: u8| -> Option<&'static [f64]> { return Some(&[999.99]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> { return Some(&[420.69]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![BiasWithDistance {
+                bias: 999.99,
+                distance: 0.00
+            }]
+        );
+    }
+
+    #[test]
+    fn closest_biases_one_nearest_smaller() {
+        let raw_estimate = 100.0;
+        let precision = 10;
+        let knn_neighbors = 1;
+        let bias_data = |_: u8| -> Option<&'static [f64]> { return Some(&[123.45, 678.90]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> { return Some(&[99.9, 100.2]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![BiasWithDistance {
+                bias: 123.45,
+                distance: 0.01
+            }]
+        );
+    }
+
+    #[test]
+    fn closest_biases_one_nearest_larger() {
+        let raw_estimate = 100.0;
+        let precision = 10;
+        let knn_neighbors = 1;
+        let bias_data = |_: u8| -> Option<&'static [f64]> { return Some(&[123.45, 678.90]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> { return Some(&[99.8, 100.1]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![BiasWithDistance {
+                bias: 678.90,
+                distance: 0.01
+            }]
+        );
+    }
+
+    #[test]
+    fn closest_biases_all_distance_ascends_with_index() {
+        let raw_estimate = 100.0;
+        let precision = 10;
+        let knn_neighbors = 3;
+        let bias_data = |_: u8| -> Option<&'static [f64]> { return Some(&[12.3, 45.6, 78.9]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> { return Some(&[100.0, 100.1, 101.0]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![
+                BiasWithDistance {
+                    bias: 12.3,
+                    distance: 0.00
+                },
+                BiasWithDistance {
+                    bias: 45.6,
+                    distance: 0.01
+                },
+                BiasWithDistance {
+                    bias: 78.9,
+                    distance: 1.00
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn closest_biases_all_distance_descends_with_index() {
+        let raw_estimate = 101.0;
+        let precision = 10;
+        let knn_neighbors = 3;
+        let bias_data = |_: u8| -> Option<&'static [f64]> { return Some(&[12.3, 45.6, 78.9]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> { return Some(&[100.0, 100.1, 101.0]) };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![
+                BiasWithDistance {
+                    bias: 78.9,
+                    distance: 0.00
+                },
+                BiasWithDistance {
+                    bias: 45.6,
+                    distance: 0.81
+                },
+                BiasWithDistance {
+                    bias: 12.3,
+                    distance: 1.00
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn closest_biases_all_distance_alternates_with_index() {
+        let raw_estimate = 100.0;
+        let precision = 10;
+        let knn_neighbors = 5;
+        let bias_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[1.2, 3.4, 5.6, 7.8, 9.0]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> {
+            return Some(&[0.00, 99.00, 99.99, 100.10, 110.00]);
+        };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![
+                BiasWithDistance {
+                    bias: 5.6,
+                    distance: 0.0001
+                },
+                BiasWithDistance {
+                    bias: 7.8,
+                    distance: 0.0100
+                },
+                BiasWithDistance {
+                    bias: 3.4,
+                    distance: 1.0000
+                },
+                BiasWithDistance {
+                    bias: 9.0,
+                    distance: 100.0000
+                },
+                BiasWithDistance {
+                    bias: 1.2,
+                    distance: 10000.0000
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn closest_biases_some_distance_alternates_with_index() {
+        let raw_estimate = 100.0;
+        let precision = 10;
+        let knn_neighbors = 3;
+        let bias_data =
+            |_: u8| -> Option<&'static [f64]> { return Some(&[1.2, 3.4, 5.6, 7.8, 9.0]) };
+        let mean_data = |_: u8| -> Option<&'static [f64]> {
+            return Some(&[0.00, 99.00, 99.99, 100.10, 110.00]);
+        };
+
+        let result = super::closest_biases_internal(
+            &raw_estimate,
+            precision,
+            knn_neighbors,
+            &bias_data,
+            &mean_data,
+        );
+
+        assert_eq!(
+            result,
+            vec![
+                BiasWithDistance {
+                    bias: 5.6,
+                    distance: 0.0001
+                },
+                BiasWithDistance {
+                    bias: 7.8,
+                    distance: 0.0100
+                },
+                BiasWithDistance {
+                    bias: 3.4,
+                    distance: 1.0000
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn estimate_bias_no_biases() {
+        let closest_biases = &[];
+
+        let result = super::estimate_bias(closest_biases);
+
+        assert!(super::float_cmp(result, 0.0));
+    }
+
+    #[test]
+    fn estimate_bias_exact_match_only() {
+        let closest_biases = &[BiasWithDistance {
+            bias: 420.69,
+            distance: 0.0,
+        }];
+
+        let result = super::estimate_bias(closest_biases);
+
+        assert!(super::float_cmp(result, 420.69));
+    }
+
+    #[test]
+    fn estimate_bias_exact_match_with_others() {
+        let closest_biases = &[
+            BiasWithDistance {
+                bias: 420.69,
+                distance: 0.0,
+            },
+            BiasWithDistance {
+                bias: 999.99,
+                distance: 1.0,
+            },
+            BiasWithDistance {
+                bias: 999.99,
+                distance: 2.0,
+            },
+        ];
+
+        let result = super::estimate_bias(closest_biases);
+
+        assert!(super::float_cmp(result, 420.69));
+    }
+
+    #[test]
+    fn estimate_bias_single_bias() {
+        let closest_biases = &[BiasWithDistance {
+            bias: 420.69,
+            distance: 1.0,
+        }];
+
+        let result = super::estimate_bias(closest_biases);
+
+        assert!(super::float_cmp(result, 420.69));
+    }
+
+    #[test]
+    fn estimate_bias_multiple_biases() {
+        let closest_biases = &[
+            BiasWithDistance {
+                bias: 12.3,
+                distance: 1.0,
+            },
+            BiasWithDistance {
+                bias: 45.6,
+                distance: 2.0,
+            },
+            BiasWithDistance {
+                bias: 78.9,
+                distance: 3.0,
+            },
+        ];
+
+        let result = super::estimate_bias(closest_biases);
+
+        assert!(super::float_cmp(result, 33.4909)) // (12.3 / 1 + 45.6 / 2 + 78.9 / 3) / (1^-1 + 2^-1 + 3^-1)
+    }
 }

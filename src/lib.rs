@@ -79,7 +79,7 @@
 
 // For compatibility, hllppzeta implements difference-encoding and varint-encoding in its serialization logic rather than storing the sparse representation that way during use.
 
-pub const MIN_PRECISION: u8 = 15;
+pub const MIN_PRECISION: u8 = 10;
 pub const MAX_DENSE_PRECISION: u8 = 18;
 pub const MAX_SPARSE_PRECISION: u8 = 25;
 
@@ -236,9 +236,9 @@ impl HyperLogLogPlusPlus {
     // getPrecision returns the effective precision of a sketch, taking into account which representation it is currently using.
     fn get_precision(&self) -> u8 {
         if self.is_sparse() {
-            self.precisions.dense
-        } else {
             self.precisions.sparse
+        } else {
+            self.precisions.dense
         }
     }
 
@@ -264,38 +264,38 @@ impl HyperLogLogPlusPlus {
 
                     // find index of matching sparse entry or the index to insert new sparse entry (cumbersome because there's no sort.SearchInts equivalent for []uint32)
                     // because the rhoEncodedFlag is the most significant bit, sort.Search will quickly exclude rhoEncoded entries (it uses binary search)
-                    if let Err(index) = sparse_sketch.binary_search(&encoded_to_insert) {
-                        sparse_sketch.insert(index, encoded_to_insert)
+                    if let Err(search_index) = sparse_sketch.binary_search(&encoded_to_insert) {
+                        sparse_sketch.insert(search_index, encoded_to_insert)
                     }
                 } else {
                     // This is the encoding chosen if rhoW can't be determined from sparseIndex, and the encoding is a flag, optional padding, the normal index, and rhoW.
                     // rhoW isn't determined by the index, so instead of an exact match, we need to find the entry matching our index and overwrite if ours is larger, otherwise insert.
                     // The order of fields in the encoding was chosen so that sorting entries by encoding sorts first by index then by rhoW, so we can still search efficiently.
-                    if let Err(index) = sparse_sketch.binary_search(&encoded_to_insert) {
+                    if let Err(search_index) = sparse_sketch.binary_search(&encoded_to_insert) {
                         // no exactly matching entry found
                         // check if the entry at the point to insert has the same index - if so it has a higher rhoW because of sort order so we do nothing
-                        if index != sparse_sketch.len() {
+                        if search_index != sparse_sketch.len() {
                             let (next_index, _) = bit_arithmetic::decode_sparse(
                                 &self.precisions,
-                                sparse_sketch[index],
+                                sparse_sketch[search_index],
                             );
                             if index as u32 == next_index {
                                 return;
                             }
                         }
                         // check if the entry just before the point to insert has the same index - if so it has a smaller rhoW because of sort order so we overwrite
-                        if index != 0 {
+                        if search_index != 0 {
                             let (previous_index, _) = bit_arithmetic::decode_sparse(
                                 &self.precisions,
-                                sparse_sketch[index - 1],
+                                sparse_sketch[search_index - 1],
                             );
                             if index as u32 == previous_index {
-                                sparse_sketch[index - 1] = encoded_to_insert;
+                                sparse_sketch[search_index - 1] = encoded_to_insert;
                                 return;
                             }
                         }
                         // no index-matching entry found
-                        sparse_sketch.insert(index, encoded_to_insert);
+                        sparse_sketch.insert(search_index, encoded_to_insert);
                     }
                 }
             }
@@ -318,3 +318,901 @@ impl HyperLogLogPlusPlus {
 mod bit_arithmetic;
 mod get_estimate;
 mod merge;
+
+#[cfg(test)]
+mod tests {
+    use crate::bit_arithmetic::encode_sparse;
+
+    #[test]
+    fn new_with_precision() {
+        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25).unwrap();
+        assert_eq!(15, hllpp.precisions.dense);
+        assert_eq!(25, hllpp.precisions.sparse);
+        match hllpp.sketch {
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+            crate::Sketch::Sparse(sparse_data) => {
+                assert!(sparse_data.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn as_dense() {
+        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+            .unwrap()
+            .as_dense();
+        assert_eq!(15, hllpp.precisions.dense);
+        assert_eq!(25, hllpp.precisions.sparse);
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1 << 15, dense_data.len());
+                assert_eq!(0u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn add_hash_one() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+            .unwrap()
+            .as_dense();
+
+        hllpp.add_hash(0b000000000000000_1111111111_111111111111111111111111111111111111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1, dense_data[0]);
+                assert_eq!(1u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn add_hash_three_same_bucket() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+            .unwrap()
+            .as_dense();
+
+        hllpp.add_hash(0b000000000000000_1111111111_111111111111111111111111111111111111111);
+        hllpp.add_hash(0b000000000000000_0111111111_111111111111111111111111111111111111111);
+        hllpp.add_hash(0b000000000000000_0011111111_111111111111111111111111111111111111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(3, dense_data[0]);
+                assert_eq!(3u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn add_hash_three_different_buckets() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+            .unwrap()
+            .as_dense();
+
+        hllpp.add_hash(0b000000000000000_1111111111_111111111111111111111111111111111111111);
+        hllpp.add_hash(0b000000000000001_0111111111_111111111111111111111111111111111111111);
+        hllpp.add_hash(0b000000000000010_0011111111_111111111111111111111111111111111111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1, dense_data[0]);
+                assert_eq!(2, dense_data[1]);
+                assert_eq!(3, dense_data[2]);
+                assert_eq!(6u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn add_hash_collision() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+            .unwrap()
+            .as_dense();
+
+        hllpp.add_hash(0b000000000000000_1111111111_111111111111111111111111111111111111111);
+        hllpp.add_hash(0b000000000000000_1111111111_111111111111111111111111111111111111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1, dense_data[0]);
+                assert_eq!(1u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn add_hash_convert_to_dense() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        // threshold = .75 * 2^10 / 4 = 192
+        for i in 0..193u64 {
+            hllpp.add_hash(i << (64 - 10)) // each add in a separate bucket with sparse index i << (25-10) and normal index i;
+        }
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                for i in 0..193 {
+                    assert_eq!(55, dense_data[i]);
+                }
+                assert_eq!(55 * 193, dense_data.iter().map(|&d| d as i32).sum::<i32>());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_normal_upgrade_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+            .unwrap()
+            .as_dense();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        if let crate::Sketch::Sparse(_) = dst.sketch {
+            panic!("expected dense sketch")
+        }
+    }
+
+    #[test]
+    fn merge_sparse_upgrade_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        if let crate::Sketch::Dense(_) = dst.sketch {
+            panic!("expected sparse sketch")
+        }
+    }
+
+    #[test]
+    fn merge_sparse_upgrade_normal_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 20).unwrap();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        if let crate::Sketch::Dense(_) = dst.sketch {
+            panic!("expected sparse sketch")
+        }
+    }
+
+    #[test]
+    fn merge_normal_empty_sketches_same_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        if let crate::Sketch::Sparse(_) = dst.sketch {
+            panic!("expected dense sketch")
+        }
+    }
+
+    #[test]
+    fn merge_sparse_empty_sketches_same_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        if let crate::Sketch::Dense(_) = dst.sketch {
+            panic!("expected sparse sketch")
+        }
+    }
+
+    #[test]
+    fn merge_normal_empty_sketches_downgrade_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+            .unwrap()
+            .as_dense();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        if let crate::Sketch::Sparse(_) = dst.sketch {
+            panic!("expected dense sketch")
+        }
+    }
+
+    #[test]
+    fn merge_sparse_empty_sketches_downgrade_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        if let crate::Sketch::Dense(_) = dst.sketch {
+            panic!("expected sparse sketch")
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_normal_empty_sketches_downgrade_precision() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+            .unwrap()
+            .as_dense();
+        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        if let crate::Sketch::Sparse(_) = dst.sketch {
+            panic!("expected dense sketch")
+        }
+    }
+
+    #[test]
+    fn merge_normal_to_same_precision_empty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
+        match src.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(55, dense_data[0]);
+                assert_eq!(55u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_same_precision_empty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        let encoded = encode_sparse(&src.precisions, 0, 55);
+
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(encoded);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(encoded, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_normal_to_downgrade_precision_empty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+            .unwrap()
+            .as_dense();
+
+        match src.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000_00000000] = 47; // rhoW counts 8 additional 0's, rhoW = 47 + 8 = 55
+                dense_data[0b1111111111_11111111] = 47; // rhoW counts 0 leading 0's of 11111111, rhoW = 0 + 1 = 1
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(55, dense_data[0b0000000000]);
+                assert_eq!(1, dense_data[0b1111111111]);
+                assert_eq!(56u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_downgrade_precision_empty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        // rhoW counts 5 additional 0's, rhoW = 47 + 5 = 52
+        let encoded_a25 = encode_sparse(&src.precisions, 0b00000000000000000000_00000, 47);
+        let encoded_a20 = encode_sparse(&dst.precisions, 0b00000000000000000000, 52);
+        // rhoW counts 0 leading 0's of 11111, rhoW = 0 + 1 = 1
+        let encoded_b25 = encode_sparse(&src.precisions, 0b11111111111111111111_11111, 47);
+        let encoded_b20 = encode_sparse(&dst.precisions, 0b11111111111111111111, 1);
+
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // order reversed because encodedA25 is rhoW-encoded, so its most significant bit is set, so it is ordered higher than encodedB25
+                sparse_data.push(encoded_b25);
+                sparse_data.push(encoded_a25);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(encoded_b20, sparse_data[0]);
+                assert_eq!(encoded_a20, sparse_data[1]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_normal_to_downgrade_precision_empty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        // rhoW counts 15 additional 0's, rhoW = 37 + 15 = 52
+        let encoded_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 37);
+        // rhoW counts 0 leading 0's of 111111111111111, rhoW = 0 + 1 = 1
+        let encoded_b = encode_sparse(&src.precisions, 0b1111111111_111111111111111, 37);
+
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // order reversed because encodedA is rhoW-encoded, so its most significant bit is set, so it is ordered higher than encodedB
+                sparse_data.push(encoded_b);
+                sparse_data.push(encoded_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(52, dense_data[0b0000000000]);
+                assert_eq!(1, dense_data[0b1111111111]);
+                assert_eq!(53u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_normal_to_same_precision_nonempty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
+        match dst.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0] = 1;
+                dense_data[1] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0] = 55;
+                dense_data[1] = 1;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(55, dense_data[0]); // max(1, 55) = 55
+                assert_eq!(55, dense_data[1]); // max(55, 1) = 55
+                assert_eq!(110u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_same_precision_nonempty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        let encoded_into_a = encode_sparse(&dst.precisions, 0, 1);
+        let encoded_into_b = encode_sparse(&dst.precisions, 1, 55);
+        let encoded_from_a = encode_sparse(&src.precisions, 0, 55);
+        let encoded_from_b = encode_sparse(&src.precisions, 1, 1);
+
+        match dst.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // order reversed because encodedIntoA is rhoW-encoded, so its most significant bit is set, so it is ordered higher than encodedIntoB
+                sparse_data.push(encoded_into_b);
+                sparse_data.push(encoded_into_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // order reversed because encodedFromA is rhoW-encoded, so its most significant bit is set, so it is ordered higher than encodedFromB
+                sparse_data.push(encoded_from_b);
+                sparse_data.push(encoded_from_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(encoded_into_b, sparse_data[0]); // max(1, 55) = 55
+                assert_eq!(encoded_from_a, sparse_data[1]); // max(55, 1) = 55
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_normal_to_downgrade_precision_nonempty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+            .unwrap()
+            .as_dense();
+
+        match dst.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000] = 1;
+                dense_data[0b0000000001] = 55;
+                dense_data[0b0000000010] = 1;
+                dense_data[0b0000000011] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000_00000000] = 47; // rhoW counts 8 additional 0's, rhoW = 47 + 8 = 55
+                dense_data[0b0000000001_00000000] = 1; // rhoW counts 8 additional 0's, rhoW = 1 + 8 = 9
+                dense_data[0b0000000010_00111111] = 47; // rhoW counts 2 leading 0's of 00111111, rhoW = 2 + 1 = 3
+                dense_data[0b0000000011_11111111] = 1; // rhoW counts 0 leading 0's of 11111111, rhoW = 0 + 1 = 1
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(55, dense_data[0b0000000000]); // max(1, 55) = 55
+                assert_eq!(55, dense_data[0b0000000001]); // max(55, 9) = 55
+                assert_eq!(3, dense_data[0b0000000010]); // max(1, 3) = 3
+                assert_eq!(55, dense_data[0b0000000011]); // max(55, 1) = 55
+                assert_eq!(
+                    55 + 55 + 3 + 55,
+                    dense_data.iter().map(|&d| d as i32).sum::<i32>()
+                );
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_downgrade_precision_nonempty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        let encoded_into_a = encode_sparse(&dst.precisions, 0b0000000000_0000000000, 1);
+        let encoded_into_b = encode_sparse(&dst.precisions, 0b0000000000_0000000001, 55);
+        let encoded_into_c = encode_sparse(&dst.precisions, 0b0000000000_0000000010, 1);
+        let encoded_into_d = encode_sparse(&dst.precisions, 0b0000000000_0000000011, 55);
+        // rhoW counts 5 additional 0's, rhoW = 47 + 5 = 52
+        let encoded_from_a25 = encode_sparse(&src.precisions, 0b0000000000000_00000_00_00000, 47);
+        let encoded_from_a20 = encode_sparse(&dst.precisions, 0b0000000000000_00000_00, 52);
+        // rhoW counts 5 additional 0's, rhoW = 1 + 5 = 6
+        let encoded_from_b25 = encode_sparse(&src.precisions, 0b0000000000000_00000_01_00000, 1);
+        // rhoW counts 2 leading 0's of 00111111, rhoW = 2 + 1 = 3
+        let encoded_from_c25 = encode_sparse(&src.precisions, 0b0000000000000_00000_10_00111, 47);
+        let encoded_from_c20 = encode_sparse(&dst.precisions, 0b0000000000000_00000_10, 3);
+        // rhoW counts 0 leading 0's of 11111111, rhoW = 0 + 1 = 1
+        let encoded_from_d25 = encode_sparse(&src.precisions, 0b0000000000000_00000_11_11111, 1);
+
+        match dst.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedIntoA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_into_b);
+                sparse_data.push(encoded_into_c);
+                sparse_data.push(encoded_into_d);
+                sparse_data.push(encoded_into_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedFromA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_from_b25);
+                sparse_data.push(encoded_from_c25);
+                sparse_data.push(encoded_from_d25);
+                sparse_data.push(encoded_from_a25);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(4, sparse_data.len());
+                assert_eq!(encoded_into_b, sparse_data[0]); // max(1, 52) = 52
+                assert_eq!(encoded_from_c20, sparse_data[1]); // max(55, 6) = 55
+                assert_eq!(encoded_into_d, sparse_data[2]); // max(1, 3) = 3
+                assert_eq!(encoded_from_a20, sparse_data[3]); // max(55, 1) = 55
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_normal_to_downgrade_precision_nonempty_sketch() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        // rhoW counts 15 additional 0's, rhoW = 37 + 15 = 52
+        let encoded_from_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 37);
+        // rhoW counts 15 additional 0's, rhoW = 1 + 15 = 16
+        let encoded_from_b = encode_sparse(&src.precisions, 0b0000000001_000000000000000, 1);
+        // rhoW counts 2 leading 0's of 00111111, rhoW = 2 + 1 = 3
+        let encoded_from_c = encode_sparse(&src.precisions, 0b0000000010_001111111111111, 47);
+        // rhoW counts 0 leading 0's of 11111111, rhoW = 0 + 1 = 1
+        let encoded_from_d = encode_sparse(&src.precisions, 0b0000000011_111111111111111, 1);
+
+        match dst.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000] = 1;
+                dense_data[0b0000000001] = 55;
+                dense_data[0b0000000010] = 1;
+                dense_data[0b0000000011] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedFromA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_from_b);
+                sparse_data.push(encoded_from_c);
+                sparse_data.push(encoded_from_d);
+                sparse_data.push(encoded_from_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(52, dense_data[0b0000000000]); // max(1, 52) = 52
+                assert_eq!(55, dense_data[0b0000000001]); // max(55, 16) = 55
+                assert_eq!(3, dense_data[0b0000000010]); // max(1, 3) = 3
+                assert_eq!(55, dense_data[0b0000000011]); // max(55, 1) = 55
+                assert_eq!(
+                    52 + 55 + 3 + 55,
+                    dense_data.iter().map(|&d| d as i32).sum::<i32>()
+                );
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_normal_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+            .unwrap()
+            .as_dense();
+
+        match dst.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000] = 1;
+                dense_data[0b0000000001] = 28;
+                dense_data[0b0000000010] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000_00000000] = 2; // rhoW counts 8 additional 0's, rhoW = 2 + 8 = 10
+                dense_data[0b0000000000_00000001] = 2; // rhoW counts 7 leading 0's of 00000001, rhoW = 7 + 1 = 8
+                dense_data[0b0000000001_00000000] = 24; // rhoW counts 8 additional 0's, rhoW = 24 + 8 = 32
+                dense_data[0b0000000001_00000001] = 24; // rhoW counts 7 leading 0's of 00000001, rhoW = 7 + 1 = 8
+                dense_data[0b0000000010_00000000] = 46; // rhoW counts 8 additional 0's, rhoW = 46 + 8 = 54
+                dense_data[0b0000000010_00000001] = 46; // rhoW counts 7 leading 0's of 00000001, rhoW = 7 + 1 = 8
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(25, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(10, dense_data[0b0000000000]); // max(1, 10, 8) = 10
+                assert_eq!(32, dense_data[0b0000000001]); // max(28, 32, 8) = 32
+                assert_eq!(55, dense_data[0b0000000010]); // max(55, 54, 8) = 55
+                assert_eq!(
+                    10 + 32 + 55,
+                    dense_data.iter().map(|&d| d as i32).sum::<i32>()
+                );
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        let encoded_into_a = encode_sparse(&dst.precisions, 0b0000000000_0000000000, 1);
+        let encoded_into_b = encode_sparse(&dst.precisions, 0b0000000000_0000000001, 28);
+        let encoded_into_c = encode_sparse(&dst.precisions, 0b0000000000_0000000010, 55);
+        // rhoW counts 5 additional 0's, rhoW = 2 + 5 = 7
+        let encoded_from_a25 = encode_sparse(&src.precisions, 0b0000000000_00000000_00_00000, 2);
+        let encoded_from_a20 = encode_sparse(&dst.precisions, 0b0000000000_00000000_00, 7);
+        // rhoW counts 4 leading 0's of 00001, rhoW = 4 + 1 = 5
+        let encoded_from_b = encode_sparse(&src.precisions, 0b0000000000_00000000_00_00001, 2);
+        // rhoW counts 5 additional 0's, rhoW = 24 + 5 = 29
+        let encoded_from_c25 = encode_sparse(&src.precisions, 0b0000000000_00000000_01_00000, 24);
+        let encoded_from_c20 = encode_sparse(&dst.precisions, 0b0000000000_00000000_01, 29);
+        // rhoW counts 4 leading 0's of 00001, rhoW = 4 + 1 = 5
+        let encoded_from_d = encode_sparse(&src.precisions, 0b0000000000_00000000_01_00001, 24);
+        // rhoW counts 5 additional 0's, rhoW = 46 + 5 = 51
+        let encoded_from_e = encode_sparse(&src.precisions, 0b0000000000_00000000_10_00000, 46);
+        // rhoW counts 4 leading 0's of 00001, rhoW = 4 + 1 = 5
+        let encoded_from_f = encode_sparse(&src.precisions, 0b0000000000_00000000_10_00001, 46);
+
+        match dst.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedIntoA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_into_b);
+                sparse_data.push(encoded_into_c);
+                sparse_data.push(encoded_into_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedFromA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_from_b);
+                sparse_data.push(encoded_from_c25);
+                sparse_data.push(encoded_from_d);
+                sparse_data.push(encoded_from_e);
+                sparse_data.push(encoded_from_f);
+                sparse_data.push(encoded_from_a25);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(3, sparse_data.len());
+                assert_eq!(encoded_from_c20, sparse_data[0]); // max(1, 7, 5) = 7
+                assert_eq!(encoded_into_c, sparse_data[1]); // max(28, 29, 5) = 29
+                assert_eq!(encoded_from_a20, sparse_data[2]); // max(55, 51, 5) = 55
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn merge_sparse_to_normal_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
+        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+            .unwrap()
+            .as_dense();
+        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+
+        // rhoW counts 15 additional 0's, rhoW = 2 + 15 = 17
+        let encoded_from_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 2);
+        // rhoW counts 14 leading 0's of 000000000000001, rhoW = 14 + 1 = 15
+        let encoded_from_b = encode_sparse(&src.precisions, 0b0000000000_000000000000001, 2);
+        // rhoW counts 15 additional 0's, rhoW = 20 + 15 = 35
+        let encoded_from_c = encode_sparse(&src.precisions, 0b0000000001_000000000000000, 20);
+        // rhoW counts 14 leading 0's of 000000000000001, rhoW = 14 + 1 = 15
+        let encoded_from_d = encode_sparse(&src.precisions, 0b0000000001_000000000000001, 20);
+        // rhoW counts 15 additional 0's, rhoW = 36 + 15 = 51
+        let encoded_from_e = encode_sparse(&src.precisions, 0b0000000010_000000000000000, 36);
+        // rhoW counts 14 leading 0's of 000000000000001, rhoW = 14 + 1 = 15
+        let encoded_from_f = encode_sparse(&src.precisions, 0b0000000010_000000000000001, 36);
+
+        match dst.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0b0000000000] = 1;
+                dense_data[0b0000000001] = 28;
+                dense_data[0b0000000010] = 55;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        match src.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // encodedFromA last because it is rhoW-encoded, so its most significant bit is set, so it is ordered higher than others
+                sparse_data.push(encoded_from_b);
+                sparse_data.push(encoded_from_c);
+                sparse_data.push(encoded_from_d);
+                sparse_data.push(encoded_from_e);
+                sparse_data.push(encoded_from_f);
+                sparse_data.push(encoded_from_a);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        dst.merge(&src);
+
+        assert_eq!(10, dst.precisions.dense);
+        assert_eq!(20, dst.precisions.sparse);
+        match dst.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(17, dense_data[0b0000000000]); // max(1, 17, 15) = 17
+                assert_eq!(35, dense_data[0b0000000001]); // max(28, 35, 15) = 35
+                assert_eq!(55, dense_data[0b0000000010]); // max(55, 51, 15) = 55
+                assert_eq!(
+                    17 + 35 + 55,
+                    dense_data.iter().map(|&d| d as i32).sum::<i32>()
+                );
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+}

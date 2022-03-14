@@ -23,7 +23,7 @@ pub(crate) fn encode_sparse(precisions: &Precisions, sparse_index: u32, sparse_r
     } else {
         // this only removes zeros; we can reproduce sparseIndex as normalIndex << (sparsePrecision - normalPrecision)
         let dense_index = sparse_index >> (precisions.sparse - precisions.dense);
-        rho_encoded_flag(precisions) | dense_index << RHO_BITS | (sparse_rho_w as u32)
+        rho_encoded_flag(precisions) | (dense_index << RHO_BITS) | (sparse_rho_w as u32)
     }
 }
 
@@ -69,33 +69,228 @@ pub(crate) fn downgrade_rho_w(index: u32, rho_w: u8, old_precision: u8, new_prec
 }
 
 pub(crate) fn leading_zeroes_after_first_n_bits_u64(hash: u64, n: u8) -> u8 {
-    let first_n_bits_zeroed = hash
-        .checked_shl(n.into())
-        .unwrap_or(0)
-        .checked_shr(n.into())
-        .unwrap_or(0);
+    let first_n_bits_zeroed = if n == 0 {
+        hash
+    } else if n == 64 {
+        0
+    } else {
+        (hash << n) >> n
+    };
     (first_n_bits_zeroed.leading_zeros() as u8) - n
 }
 
 fn leading_zeroes_after_first_n_bits_u32(hash: u32, n: u8) -> u8 {
-    let first_n_bits_zeroed = hash
-        .checked_shl(n.into())
-        .unwrap_or(0)
-        .checked_shr(n.into())
-        .unwrap_or(0);
+    let first_n_bits_zeroed = if n == 0 {
+        hash
+    } else if n == 64 {
+        hash
+    } else {
+        (hash << n) >> n
+    };
     (first_n_bits_zeroed.leading_zeros() as u8) - n
 }
 
 pub(crate) fn first_n_bits(hash: u64, n: u8) -> u64 {
-    hash.checked_shr((64 - n).into()).unwrap_or(0)
+    if n == 0 {
+        0
+    } else {
+        hash >> (64 - n)
+    }
 }
 
 fn last_n_bits(hash: u32, n: u8) -> u32 {
-    hash & ((1_u32.checked_shl(n.into()).unwrap_or(0)) - 1)
+    hash & ((1u32 << n) - 1)
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn encode_sparse_rho_encoded_zero() {
+        let sparse_index = 0b0000000000_0000000000_000000000000; // sparse = normal + 10 0's
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b000000000010000_0000000000_101010; // 1 + padding + normal + rhoW
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn encode_sparse_rho_encoded_nonzero() {
+        let sparse_index = 0b000000000000_1111111111_0000000000; // sparse = normal + 10 0's
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b000000000010000_1111111111_101010; // 1 + padding + normal + rhoW
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn encode_sparse_rho_encoded_halfzero() {
+        let sparse_index = 0b000000000000_0000011111_0000000000; // sparse = normal + 10 0's
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b000000000010000_0000011111_101010; // 1 + padding + normal + rhoW
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn encode_sparse_not_rho_encoded_zero() {
+        let sparse_index = 0b00000000000_0000000000_1111111111; // sparse = normal + at least one nonzero
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b00000000000_0000000000_1111111111; // sparse
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn encode_sparse_not_rho_encoded_nonzero() {
+        let sparse_index = 0b000000000000_1111111111_11111111111; // sparse = normal + at least one nonzero
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b000000000000_1111111111_11111111111; // sparse
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn encode_sparse_not_rho_encoded_half_zero() {
+        let sparse_index = 0b000000000000_0000011111_1111111111; // sparse = normal + at least one nonzero
+        let sparse_rho_w = 0b101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected = 0b000000000000_0000011111_1111111111; // sparse
+
+        let actual = super::encode_sparse(&precisions, sparse_index, sparse_rho_w);
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn decode_sparse_rho_encoded_zero() {
+        let encoded = 0b000000000010000_0000000000_101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b0000000000_0000000000_000000000000;
+        let expected_rho = 0b101010;
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
+    #[test]
+    fn decode_sparse_rho_encoded_nonzero() {
+        let encoded = 0b000000000010000_1111111111_101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b000000000000_1111111111_0000000000;
+        let expected_rho = 0b101010;
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
+    #[test]
+    fn decode_sparse_rho_encoded_halfzero() {
+        let encoded = 0b000000000010000_0000011111_101010;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b000000000000_0000011111_0000000000;
+        let expected_rho = 0b101010;
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
+    #[test]
+    fn decode_sparse_not_rho_encoded_zero() {
+        let encoded = 0b000000000000_0000000000_1111111111;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b000000000000_0000000000_1111111111;
+        let expected_rho = 11; // rhoW counts 10 leading 0's of 0000000000_1111111111
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
+    #[test]
+    fn decode_sparse_not_rho_encoded_nonzero() {
+        let encoded = 0b000000000000_1111111111_1111111111;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b000000000000_1111111111_1111111111;
+        let expected_rho = 1; // rhoW counts 0 leading 0's of 1111111111_1111111111
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
+    #[test]
+    fn decode_sparse_not_rho_encoded_half_zero() {
+        let encoded = 0b000000000000_0000011111_1111111111;
+        let precisions = crate::Precisions {
+            dense: 10,
+            sparse: 20,
+        };
+        let expected_index = 0b000000000000_0000011111_1111111111;
+        let expected_rho = 6; // rhoW counts 5 leading 0's of 0000011111_1111111111
+
+        let (actual_index, actual_rho) = super::decode_sparse(&precisions, encoded);
+
+        assert_eq!(expected_index, actual_index);
+        assert_eq!(expected_rho, actual_rho);
+    }
+
     #[test]
     fn leading_zeroes_zero_after_all() {
         assert_eq!(
@@ -284,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_a() {
+    fn first_n_bits_none_a() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -295,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_b() {
+    fn first_n_bits_none_b() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -306,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_c() {
+    fn first_n_bits_none_c() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -317,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_d() {
+    fn first_n_bits_none_d() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -328,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_e() {
+    fn first_n_bits_none_e() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -339,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_f() {
+    fn first_n_bits_none_f() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -350,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_g() {
+    fn first_n_bits_none_g() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -361,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_none_h() {
+    fn first_n_bits_none_h() {
         assert_eq!(
             0,
             super::first_n_bits(
@@ -372,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_a() {
+    fn first_n_bits_ten_a() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000001111111111,
             super::first_n_bits(
@@ -383,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_b() {
+    fn first_n_bits_ten_b() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000001000000000,
             super::first_n_bits(
@@ -394,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_c() {
+    fn first_n_bits_ten_c() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000111111111,
             super::first_n_bits(
@@ -405,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_d() {
+    fn first_n_bits_ten_d() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000100000000,
             super::first_n_bits(
@@ -416,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_e() {
+    fn first_n_bits_ten_e() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000000000000,
             super::first_n_bits(
@@ -427,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_f() {
+    fn first_n_bits_ten_f() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000000000000,
             super::first_n_bits(
@@ -438,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_g() {
+    fn first_n_bits_ten_g() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000000000000,
             super::first_n_bits(
@@ -449,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn first_nbits_ten_h() {
+    fn first_n_bits_ten_h() {
         assert_eq!(
             0b0000000000000000000000000000000000000000000000000000000000000000,
             super::first_n_bits(

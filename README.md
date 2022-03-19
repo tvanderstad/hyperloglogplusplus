@@ -3,7 +3,7 @@
 A pure-Rust implementation of [HyperLogLog++](https://research.google/pubs/pub40671/), based on [Google's Java source code](https://github.com/google/zetasketch).
 
 Example usage:
-```
+```rust
 use hyperloglogplusplus::HyperLogLogPlusPlus;
 
 fn hash<T: std::hash::Hash>(t: T) -> u64 {

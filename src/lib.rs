@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_normal_smaller() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
 
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_normal_larger() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
         match hllpp.sketch {
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_zero() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         hllpp.set_if_larger(0b00000000000000000000000000000001, 0b000000);
 
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_not_rho_encoded_none_exist() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         hllpp.set_if_larger(0b00000000000000000000000000000001, 0b111111);
 
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_not_rho_encoded_not_exists_smallest() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b00000000000000000000000000000010);
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_not_rho_encoded_not_exists_largest() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b00000000000000000000000000000001);
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_not_rho_encoded_exists() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b00000000000000000000000000000001);
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_empty() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         hllpp.set_if_larger(0b00000000_000000000_000000000000000, 0b111111);
 
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_not_exists_smallest() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b000000_1_000000000_0000000001_111111);
@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_not_exists_largest() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b000000_1_000000000_0000000000_111111);
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_exists_smaller() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b000000_1_000000000_0000000001_111111);
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_exists_equal() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b000000_1_000000000_0000000001_111111);
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn set_if_larger_sparse_rho_encoded_exists_larger() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 sparse_data.push(0b000000_1_000000000_0000000001_000111);
@@ -638,7 +638,7 @@ mod tests {
 
     #[test]
     fn zero_count_normal_none() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
         match hllpp.sketch {
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn zero_count_normal_one() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
         match hllpp.sketch {
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn zero_count_normal_all() {
-        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
         assert_eq!(1024, hllpp.zero_count());
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn zero_count_sparse_none() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 for i in 0..1024 {
@@ -699,7 +699,7 @@ mod tests {
 
     #[test]
     fn zero_count_sparse_one() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 for i in 1..1024 {
@@ -716,13 +716,13 @@ mod tests {
 
     #[test]
     fn zero_count_sparse_all() {
-        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        let hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
         assert_eq!(1024, hllpp.zero_count());
     }
 
     #[test]
     fn convert_to_normal_empty_sketch() {
-        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
 
         let hllpp = hllpp.as_dense();
 
@@ -741,7 +741,7 @@ mod tests {
 
     #[test]
     fn convert_to_normal_nonempty_sketch() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
         match hllpp.sketch {
             crate::Sketch::Sparse(ref mut sparse_data) => {
                 // rhoW counts 10 additional 0's, rhoW = 10 + 10 = 20
@@ -776,7 +776,7 @@ mod tests {
     fn new_sketch_all_valid_precisions() {
         for dense_precision in 10..18 {
             for sparse_precision in dense_precision..26 {
-                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                crate::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
                     .unwrap();
             }
         }
@@ -786,7 +786,7 @@ mod tests {
     fn new_sketch_normal_precision_too_low() {
         for dense_precision in 0..9 {
             for sparse_precision in dense_precision..26 {
-                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                crate::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
                     .unwrap_err();
             }
         }
@@ -796,7 +796,7 @@ mod tests {
     fn new_sketch_normal_precision_too_high() {
         for dense_precision in 19..25 {
             for sparse_precision in dense_precision..26 {
-                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                crate::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
                     .unwrap_err();
             }
         }
@@ -806,7 +806,7 @@ mod tests {
     fn new_sketch_sparse_precision_too_low() {
         for dense_precision in 10..18 {
             for sparse_precision in 0..dense_precision {
-                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                crate::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
                     .unwrap_err();
             }
         }
@@ -816,7 +816,7 @@ mod tests {
     fn new_sketch_sparse_precision_too_high() {
         for dense_precision in 10..18 {
             for sparse_precision in 26..30 {
-                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                crate::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
                     .unwrap_err();
             }
         }
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn add_hash_one() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(15, 25)
             .unwrap()
             .as_dense();
 
@@ -843,7 +843,7 @@ mod tests {
 
     #[test]
     fn add_hash_three_same_bucket() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(15, 25)
             .unwrap()
             .as_dense();
 
@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn add_hash_three_different_buckets() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(15, 25)
             .unwrap()
             .as_dense();
 
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn add_hash_collision() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(15, 25)
             .unwrap()
             .as_dense();
 
@@ -907,7 +907,7 @@ mod tests {
 
     #[test]
     fn add_hash_convert_to_dense() {
-        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         // threshold = .75 * 2^10 / 4 = 192
         for i in 0..193u64 {
@@ -929,10 +929,10 @@ mod tests {
 
     #[test]
     fn merge_normal_upgrade_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(18, 25)
             .unwrap()
             .as_dense();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
 
@@ -947,8 +947,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_upgrade_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
 
         dst.merge(&src);
 
@@ -961,8 +961,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_upgrade_normal_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(18, 20).unwrap();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(18, 20).unwrap();
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         dst.merge(&src);
 
@@ -975,10 +975,10 @@ mod tests {
 
     #[test]
     fn merge_normal_empty_sketches_same_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
 
@@ -993,8 +993,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_empty_sketches_same_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         dst.merge(&src);
 
@@ -1007,10 +1007,10 @@ mod tests {
 
     #[test]
     fn merge_normal_empty_sketches_downgrade_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25)
             .unwrap()
             .as_dense();
 
@@ -1025,8 +1025,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_empty_sketches_downgrade_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         dst.merge(&src);
 
@@ -1039,10 +1039,10 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_normal_empty_sketches_downgrade_precision() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20)
             .unwrap()
             .as_dense();
-        let src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         dst.merge(&src);
 
@@ -1055,10 +1055,10 @@ mod tests {
 
     #[test]
     fn merge_normal_to_same_precision_empty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
 
@@ -1088,8 +1088,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_same_precision_empty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         let encoded = encode_sparse(&src.precisions, 0, 55);
 
@@ -1119,10 +1119,10 @@ mod tests {
 
     #[test]
     fn merge_normal_to_downgrade_precision_empty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25)
             .unwrap()
             .as_dense();
 
@@ -1154,8 +1154,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_downgrade_precision_empty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         // rhoW counts 5 additional 0's, rhoW = 47 + 5 = 52
         let encoded_a25 = encode_sparse(&src.precisions, 0b00000000000000000000_00000, 47);
@@ -1193,10 +1193,10 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_normal_to_downgrade_precision_empty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         // rhoW counts 15 additional 0's, rhoW = 37 + 15 = 52
         let encoded_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 37);
@@ -1232,10 +1232,10 @@ mod tests {
 
     #[test]
     fn merge_normal_to_same_precision_nonempty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
 
@@ -1276,8 +1276,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_same_precision_nonempty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
 
         let encoded_into_a = encode_sparse(&dst.precisions, 0, 1);
         let encoded_into_b = encode_sparse(&dst.precisions, 1, 55);
@@ -1323,10 +1323,10 @@ mod tests {
 
     #[test]
     fn merge_normal_to_downgrade_precision_nonempty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25)
             .unwrap()
             .as_dense();
 
@@ -1376,8 +1376,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_downgrade_precision_nonempty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         let encoded_into_a = encode_sparse(&dst.precisions, 0b0000000000_0000000000, 1);
         let encoded_into_b = encode_sparse(&dst.precisions, 0b0000000000_0000000001, 55);
@@ -1439,10 +1439,10 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_normal_to_downgrade_precision_nonempty_sketch() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         // rhoW counts 15 additional 0's, rhoW = 37 + 15 = 52
         let encoded_from_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 37);
@@ -1500,10 +1500,10 @@ mod tests {
 
     #[test]
     fn merge_normal_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25)
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25)
             .unwrap()
             .as_dense();
 
@@ -1553,8 +1553,8 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         let encoded_into_a = encode_sparse(&dst.precisions, 0b0000000000_0000000000, 1);
         let encoded_into_b = encode_sparse(&dst.precisions, 0b0000000000_0000000001, 28);
@@ -1619,10 +1619,10 @@ mod tests {
 
     #[test]
     fn merge_sparse_to_normal_to_downgrade_precision_nonempty_sketch_colliding_downgraded_values() {
-        let mut dst = super::HyperLogLogPlusPlus::new_with_precision(10, 20)
+        let mut dst = crate::HyperLogLogPlusPlus::new_with_precision(10, 20)
             .unwrap()
             .as_dense();
-        let mut src = super::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
+        let mut src = crate::HyperLogLogPlusPlus::new_with_precision(18, 25).unwrap();
 
         // rhoW counts 15 additional 0's, rhoW = 2 + 15 = 17
         let encoded_from_a = encode_sparse(&src.precisions, 0b0000000000_000000000000000, 2);
@@ -1811,5 +1811,48 @@ mod tests {
         let result = sketch.get_estimate();
 
         assert_eq!(result, 1595);
+    }
+
+    #[test]
+    fn no_adds() {
+        assert_eq!(
+            0,
+            crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+                .unwrap()
+                .get_estimate()
+        );
+    }
+
+    #[test]
+    fn three_adds_no_duplicates() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.add_hash(0b0000000000_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000001_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000010_111111111111111111111111111111111111111111111111111111);
+
+        assert_eq!(3, hllpp.get_estimate());
+    }
+
+    #[test]
+    fn three_adds_two_duplicates() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.add_hash(0b0000000000_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000001_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000001_111111111111111111111111111111111111111111111111111111);
+
+        assert_eq!(2, hllpp.get_estimate());
+    }
+
+    #[test]
+    fn three_adds_all_duplicates() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.add_hash(0b0000000000_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000000_111111111111111111111111111111111111111111111111111111);
+        hllpp.add_hash(0b0000000000_111111111111111111111111111111111111111111111111111111);
+
+        assert_eq!(1, hllpp.get_estimate());
     }
 }

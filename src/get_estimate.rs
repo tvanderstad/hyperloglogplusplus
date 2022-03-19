@@ -2812,10 +2812,6 @@ pub(crate) fn alpha(x: u8) -> f64 {
     return 0.7213 / (1.0 + 1.079 / ((1u64 << x) as f64));
 }
 
-fn float_cmp(a: f64, b: f64) -> bool {
-    (a - b).abs() <= ((a.abs() + b.abs()) / 2.0) * 0.0001
-}
-
 #[derive(Debug)]
 pub(crate) struct BiasWithDistance {
     bias: f64,
@@ -2824,7 +2820,7 @@ pub(crate) struct BiasWithDistance {
 
 impl PartialEq for BiasWithDistance {
     fn eq(&self, other: &Self) -> bool {
-        float_cmp(self.bias, other.bias) && float_cmp(self.distance, other.distance)
+        crate::float_cmp(self.bias, other.bias) && crate::float_cmp(self.distance, other.distance)
     }
 }
 
@@ -3201,7 +3197,7 @@ mod tests {
 
         let result = super::estimate_bias(closest_biases);
 
-        assert!(super::float_cmp(result, 0.0));
+        assert!(crate::float_cmp(result, 0.0));
     }
 
     #[test]
@@ -3213,7 +3209,7 @@ mod tests {
 
         let result = super::estimate_bias(closest_biases);
 
-        assert!(super::float_cmp(result, 420.69));
+        assert!(crate::float_cmp(result, 420.69));
     }
 
     #[test]
@@ -3235,7 +3231,7 @@ mod tests {
 
         let result = super::estimate_bias(closest_biases);
 
-        assert!(super::float_cmp(result, 420.69));
+        assert!(crate::float_cmp(result, 420.69));
     }
 
     #[test]
@@ -3247,7 +3243,7 @@ mod tests {
 
         let result = super::estimate_bias(closest_biases);
 
-        assert!(super::float_cmp(result, 420.69));
+        assert!(crate::float_cmp(result, 420.69));
     }
 
     #[test]
@@ -3269,6 +3265,61 @@ mod tests {
 
         let result = super::estimate_bias(closest_biases);
 
-        assert!(super::float_cmp(result, 33.4909)) // (12.3 / 1 + 45.6 / 2 + 78.9 / 3) / (1^-1 + 2^-1 + 3^-1)
+        assert!(crate::float_cmp(result, 33.4909)) // (12.3 / 1 + 45.6 / 2 + 78.9 / 3) / (1^-1 + 2^-1 + 3^-1)
+    }
+
+    #[test]
+    fn exp_harmonic_mean_normal_zeros() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                assert!(crate::float_cmp(1.0, super::exp_harmonic_mean(&dense_data)));
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn exp_harmonic_mean_normal_one_nonzero() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[0] = 55;
+                assert!(crate::float_cmp(
+                    1024.0 / 1023.0,
+                    super::exp_harmonic_mean(&dense_data)
+                ));
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn exp_harmonic_mean_normal_all_nonzero() {
+        let mut hllpp = crate::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 0..dense_data.len() {
+                    dense_data[i] = 5;
+                }
+                assert!(crate::float_cmp(
+                    32.0,
+                    super::exp_harmonic_mean(&dense_data)
+                )); // 2^5 = 32
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
     }
 }

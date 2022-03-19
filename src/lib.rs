@@ -83,19 +83,19 @@ pub const MIN_PRECISION: u8 = 10;
 pub const MAX_DENSE_PRECISION: u8 = 18;
 pub const MAX_SPARSE_PRECISION: u8 = 25;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HyperLogLogPlusPlus {
     pub precisions: Precisions,
     sketch: Sketch,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Precisions {
     dense: u8,
     sparse: u8,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Sketch {
     Dense(Vec<u8>),
     Sparse(Vec<u32>),
@@ -315,6 +315,10 @@ impl HyperLogLogPlusPlus {
     }
 }
 
+fn float_cmp(a: f64, b: f64) -> bool {
+    (a - b).abs() <= ((a.abs() + b.abs()) / 2.0) * 0.0001
+}
+
 mod bit_arithmetic;
 mod get_estimate;
 mod merge;
@@ -324,34 +328,496 @@ mod tests {
     use crate::bit_arithmetic::encode_sparse;
 
     #[test]
-    fn new_with_precision() {
-        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25).unwrap();
-        assert_eq!(15, hllpp.precisions.dense);
-        assert_eq!(25, hllpp.precisions.sparse);
+    fn set_if_larger_normal_smaller() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+
         match hllpp.sketch {
-            crate::Sketch::Dense(_) => {
-                panic!("expected sparse sketch")
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[420] = 70;
             }
-            crate::Sketch::Sparse(sparse_data) => {
-                assert!(sparse_data.is_empty());
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        hllpp.set_if_larger(420, 69);
+
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(70u8, dense_data[420]);
+                assert_eq!(70u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
             }
         }
     }
 
     #[test]
-    fn as_dense() {
-        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(15, 25)
+    fn set_if_larger_normal_larger() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
             .unwrap()
             .as_dense();
-        assert_eq!(15, hllpp.precisions.dense);
-        assert_eq!(25, hllpp.precisions.sparse);
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                dense_data[420] = 68;
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+
+        hllpp.set_if_larger(420, 69);
+
         match hllpp.sketch {
             crate::Sketch::Dense(dense_data) => {
-                assert_eq!(1 << 15, dense_data.len());
+                assert_eq!(69u8, dense_data[420]);
+                assert_eq!(69u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_zero() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.set_if_larger(0b00000000000000000000000000000001, 0b000000);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(0, sparse_data.len());
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_not_rho_encoded_none_exist() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.set_if_larger(0b00000000000000000000000000000001, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b00000000000000000000000000000001, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_not_rho_encoded_not_exists_smallest() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b00000000000000000000000000000010);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000000000000000000000000001, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(0b00000000000000000000000000000001, sparse_data[0]);
+                assert_eq!(0b00000000000000000000000000000010, sparse_data[1]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_not_rho_encoded_not_exists_largest() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b00000000000000000000000000000001);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000000000000000000000000010, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(0b00000000000000000000000000000001, sparse_data[0]);
+                assert_eq!(0b00000000000000000000000000000010, sparse_data[1]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_not_rho_encoded_exists() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b00000000000000000000000000000001);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000000000000000000000000001, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b00000000000000000000000000000001, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_empty() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+
+        hllpp.set_if_larger(0b00000000_000000000_000000000000000, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000000_111111, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_not_exists_smallest() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b000000_1_000000000_0000000001_111111);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000_000000000_000000000000000, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000000_111111, sparse_data[0]);
+                assert_eq!(0b000000_1_000000000_0000000001_111111, sparse_data[1]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_not_exists_largest() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b000000_1_000000000_0000000000_111111);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000_000000001_000000000000000, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(2, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000000_111111, sparse_data[0]);
+                assert_eq!(0b000000_1_000000000_0000000001_111111, sparse_data[1]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_exists_smaller() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b000000_1_000000000_0000000001_111111);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000_000000001_000000000000000, 0b000111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000001_111111, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_exists_equal() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b000000_1_000000000_0000000001_111111);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000_000000001_000000000000000, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000001_111111, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn set_if_larger_sparse_rho_encoded_exists_larger() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                sparse_data.push(0b000000_1_000000000_0000000001_000111);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        hllpp.set_if_larger(0b00000000_000000001_000000000000000, 0b111111);
+
+        match hllpp.sketch {
+            crate::Sketch::Sparse(sparse_data) => {
+                assert_eq!(1, sparse_data.len());
+                assert_eq!(0b000000_1_000000000_0000000001_111111, sparse_data[0]);
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn zero_count_normal_none() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 0..dense_data.len() {
+                    dense_data[i] = 69;
+                }
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        assert_eq!(0, hllpp.zero_count());
+    }
+
+    #[test]
+    fn zero_count_normal_one() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        match hllpp.sketch {
+            crate::Sketch::Dense(ref mut dense_data) => {
+                for i in 1..dense_data.len() {
+                    dense_data[i] = 69;
+                }
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+        assert_eq!(1, hllpp.zero_count());
+    }
+
+    #[test]
+    fn zero_count_normal_all() {
+        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 25)
+            .unwrap()
+            .as_dense();
+        assert_eq!(1024, hllpp.zero_count());
+    }
+
+    #[test]
+    fn zero_count_sparse_none() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                for i in 0..1024 {
+                    sparse_data.push(encode_sparse(&hllpp.precisions, i, 69));
+                }
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        assert_eq!(0, hllpp.zero_count());
+    }
+
+    #[test]
+    fn zero_count_sparse_one() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                for i in 1..1024 {
+                    sparse_data.push(encode_sparse(&hllpp.precisions, i, 69));
+                }
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        assert_eq!(1, hllpp.zero_count());
+    }
+
+    #[test]
+    fn zero_count_sparse_all() {
+        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 10).unwrap();
+        assert_eq!(1024, hllpp.zero_count());
+    }
+
+    #[test]
+    fn convert_to_normal_empty_sketch() {
+        let hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+
+        let hllpp = hllpp.as_dense();
+
+        assert_eq!(10, hllpp.precisions.dense);
+        assert_eq!(20, hllpp.precisions.sparse);
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1 << 10, dense_data.len());
                 assert_eq!(0u8, dense_data.iter().sum());
             }
             crate::Sketch::Sparse(_) => {
                 panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn convert_to_normal_nonempty_sketch() {
+        let mut hllpp = super::HyperLogLogPlusPlus::new_with_precision(10, 20).unwrap();
+        match hllpp.sketch {
+            crate::Sketch::Sparse(ref mut sparse_data) => {
+                // rhoW counts 10 additional 0's, rhoW = 10 + 10 = 20
+                sparse_data.push(encode_sparse(
+                    &hllpp.precisions,
+                    0b0000000000_0000000000,
+                    10,
+                ));
+            }
+            crate::Sketch::Dense(_) => {
+                panic!("expected sparse sketch")
+            }
+        }
+
+        let hllpp = hllpp.as_dense();
+
+        assert_eq!(10, hllpp.precisions.dense);
+        assert_eq!(20, hllpp.precisions.sparse);
+        match hllpp.sketch {
+            crate::Sketch::Dense(dense_data) => {
+                assert_eq!(1 << 10, dense_data.len());
+                assert_eq!(20u8, dense_data[0]);
+                assert_eq!(20u8, dense_data.iter().sum());
+            }
+            crate::Sketch::Sparse(_) => {
+                panic!("expected dense sketch")
+            }
+        }
+    }
+
+    #[test]
+    fn new_sketch_all_valid_precisions() {
+        for dense_precision in 10..18 {
+            for sparse_precision in dense_precision..26 {
+                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn new_sketch_normal_precision_too_low() {
+        for dense_precision in 0..9 {
+            for sparse_precision in dense_precision..26 {
+                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                    .unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn new_sketch_normal_precision_too_high() {
+        for dense_precision in 19..25 {
+            for sparse_precision in dense_precision..26 {
+                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                    .unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn new_sketch_sparse_precision_too_low() {
+        for dense_precision in 10..18 {
+            for sparse_precision in 0..dense_precision {
+                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                    .unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn new_sketch_sparse_precision_too_high() {
+        for dense_precision in 10..18 {
+            for sparse_precision in 26..30 {
+                super::HyperLogLogPlusPlus::new_with_precision(dense_precision, sparse_precision)
+                    .unwrap_err();
             }
         }
     }
